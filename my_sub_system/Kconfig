@@ -1,5 +1,5 @@
 config MY_SUB_SYSTEM
     bool "My Custom Subsytem"
-    default y
+    default n
     help
         My subsystem to test kernel development skills
