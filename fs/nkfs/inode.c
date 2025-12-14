@@ -1,6 +1,8 @@
 //
 // Created by blgnksy on 14/12/2025.
 //
+#include "nkfs.h"
+
 static struct inode *nkfs_alloc_inode(struct super_block *sb)
 {
 	return NULL;

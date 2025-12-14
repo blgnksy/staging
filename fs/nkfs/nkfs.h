@@ -9,23 +9,16 @@
 #include <linux/types.h>
 
 /* Superblock magic number - choose a unique value */
-#define NKFS_MAGIC		0x4E4B4653  /* "NKFS" in hex */
-#define NKFS_BLOCKSIZE		4096
-
+#define NKFS_BLOCK_SIZE         		4096
+#define NKFS_MAGIC           			0x4E4B4653
+#define NKFS_INODE_BITMAP_LOCATION		1
+#define NKFS_DATA_BITMAP_LOCATION		2
+#define NKFS_INODE_TABLE_LOCATION		3
+#define NKFS_ROOT_INO				1
+#define NKFS_FILENAME_MAXLEN    		32
 
 /* Filesystem version */
 #define NKFS_VERSION 1
-
-/* Basic superblock structure (on-disk format) */
-struct nkfs_super_block {
-	struct nkfs_disk_super_block *sbd;
-	struct buffer_head *sb_bh;
-	struct buffer_head *inode_bitmap_bh;
-	struct buffer_head *data_bitmap_bh;
-	unsigned long *inode_bitmap;
-	unsigned long *data_bitmap;
-	spinlock_t lock;
-};
 
 struct nkfs_disk_super_block {
 	__le32 magic;
@@ -37,60 +30,82 @@ struct nkfs_disk_super_block {
 	__le32 inode_table_block;
 	__le32 inode_table_size;
 	__le32 data_block_start;
-	__u8   padding[4060];
+	__u8 padding[4060];
 };
 
-/* In-memory superblock info */
-struct nkfs_sb_info {
-	struct nkfs_super_block *sb;
-	unsigned long block_size;
-	unsigned long inode_size;
+struct nkfs_super_block {
+	struct nkfs_disk_super_block *sbd;
+	struct buffer_head *sb_bh;
+	struct buffer_head *inode_bitmap_bh;
+	struct buffer_head *data_bitmap_bh;
+	unsigned long *inode_bitmap;
+	unsigned long *data_bitmap;
+	spinlock_t lock;
 };
 
-/* Basic inode structure (on-disk format) */
 struct nkfs_inode {
+	__u32 block_no;
+	struct inode vfs_inode;
+};
+
+struct nkfs_disk_inode {
 	__le32 mode;
 	__le32 uid;
 	__le32 gid;
 	__le32 size;
-	__le32 blocks;
-	__le32 atime;
-	__le32 mtime;
-	__le32 ctime;
 	__le32 nlink;
+	__le32 blocks;
+	__le32 block_no;
+	__le32 ctime;
+	__le32 mtime;
+	__le32 atime;
+	__u8 padding[24];
 };
 
-/* In-memory inode info */
-struct nkfs_inode_info {
-	__le32 vfs_inode;
-	struct inode vfs_inode;
+struct nkfs_disk_dir_entry {
+	__le32 inode;
+	char name[NKFS_FILENAME_MAXLEN];
 };
 
-/* Function declarations */
-/* Inode operations */
+
+static struct dentry *nkfs_mount(struct file_system_type *type, int flags,
+                                 const char *dev, void *data);
+static int nkfs_fill_super(struct super_block *sb, void *data, int silent);
+static void nkfs_kill_sb(struct super_block *sb);
+
 static struct inode *nkfs_alloc_inode(struct super_block *sb);
 static void nkfs_free_inode(struct inode *inode);
 static int nkfs_write_inode(struct inode *inode, struct writeback_control *wbc);
 static void nkfs_evict_inode(struct inode *inode);
+static struct inode *nkfs_iget(struct super_block *sb, unsigned long ino);
+static struct nkfs_disk_inode *nkfs_get_disk_inode(struct super_block *sb,
+                                                   unsigned long ino,
+                                                   struct buffer_head **bhp);
+static struct dentry *nkfs_lookup(struct inode *dir, struct dentry *dentry,
+                                  unsigned int flags);
 
+static struct file_system_type nkfs_type = {
+	.owner = THIS_MODULE,
+	.name = "nkfs",
+	.mount = nkfs_mount,
+	.kill_sb = nkfs_kill_sb,
+	.fs_flags = FS_REQUIRES_DEV,
+    };
 
-/* File operations */
-static const struct file_operations nkfs_file_ops;
-static const struct file_operations nkfs_dir_ops;
+static const struct super_operations nkfs_super_ops = {
+	.alloc_inode = nkfs_alloc_inode,
+	.free_inode = nkfs_free_inode,
+	.write_inode = nkfs_write_inode,
+	.evict_inode = nkfs_evict_inode,
+	.statfs = simple_statfs,
+};
 
+static const struct inode_operations nkfs_dir_inode_ops = {
+	.lookup = nkfs_lookup,
+};
 
-/* Super operations */
-static const struct super_operations nkfs_super_ops;
-
-/* Mount function */
-struct dentry *nkfs_mount(struct file_system_type *fs_type,
-			  int flags, const char *dev_name, void *data);
-
-/* Helper functions */
-struct inode *nkfs_new_inode(struct inode *dir, umode_t mode);
-void nkfs_write_super(struct super_block *sb);
-int nkfs_sync_fs(struct super_block *sb, int wait);
-
-
+static const struct inode_operations nkfs_file_inode_ops = {
+	NULL
+};
 
 #endif //STAGING_NKFS_H
