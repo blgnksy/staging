@@ -15,7 +15,6 @@ MODULE_DESCRIPTION("nkfs");
 #define NKFS_DISK_INODE_PER_BLOCK	(NKFS_BLOCKSIZE / NKFS_DISK_INODE_SIZE)
 
 
-static struct kmem_cache *nkfs_inode_cachep;
 
 static int __init nkfs_module_init(void)
 {
@@ -23,7 +22,7 @@ static int __init nkfs_module_init(void)
 
 	if ((nkfs_inode_cachep = kmem_cache_create(
 		     "nkfs_inode_cache", sizeof(struct nkfs_inode),
-		     0, SLAB_RECLAIM_ACCOUNT | SLAB_ACCOUNT, NULL)) == NULL) {
+		     0, _SLAB_HWCACHE_ALIGN, NULL)) == NULL) {
 		printk(KERN_ERR "cannot allocate slab cache\n");
 		return -ENOMEM;
 	}
@@ -75,7 +74,7 @@ static int nkfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	if ((sfs_sb->sb_bh = sb_bread(sb, 0)) == NULL) {
 		printk(KERN_INFO "cannot read  nkfs disk super block!..\n");
-		goto EXIT;
+		goto EXIT1;
 	}
 	retval = -EINVAL;
 
@@ -85,30 +84,30 @@ static int nkfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (le32_to_cpu(sbd->magic) != NKFS_MAGIC) {
 		printk(KERN_INFO "invalid magic number for simpls: %08X\n",
 		       sbd->magic);
-		goto EXIT;
+		goto EXIT2;
 	}
 	if (le32_to_cpu(sbd->block_size) != NKFS_BLOCK_SIZE) {
 		printk(KERN_INFO "invalid block size for simpls: %08X\n",
 		       sbd->block_size);
-		goto EXIT;
+		goto EXIT2;
 	}
 	if (le32_to_cpu(sbd->inode_table_block) != 3) {
 		printk(KERN_INFO "invalid inode table for simpls: %08X\n",
 		       sbd->inode_table_block);
-		goto EXIT;
+		goto EXIT2;
 	}
 
 	if ((sfs_sb->inode_bitmap_bh = sb_bread(sb, NKFS_INODE_BITMAP_LOCATION))
 	    == NULL) {
 		printk(KERN_INFO "cannot read nkfs inode bitmap!..\n");
-		goto EXIT;
+		goto EXIT2;
 	}
 	sfs_sb->inode_bitmap = (unsigned long *)sfs_sb->inode_bitmap_bh->b_data;
 
 	if ((sfs_sb->data_bitmap_bh = sb_bread(sb, NKFS_DATA_BITMAP_LOCATION))
 	    == NULL) {
 		printk(KERN_INFO "cannot read nkfs data bitmap!..\n");
-		goto EXIT;
+		goto EXIT3;
 	}
 	sfs_sb->data_bitmap = (unsigned long *)sfs_sb->data_bitmap_bh->b_data;
 
@@ -116,11 +115,25 @@ static int nkfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (IS_ERR(root_inode)) {
 		printk(KERN_INFO "cannot read root inode!..\n");
 		retval = PTR_ERR(root_inode);
-		goto EXIT;
+		goto EXIT4;
 	}
 
-EXIT:
-	/* ... */
+	sb->s_root = d_make_root(root_inode);
+	if (sb->s_root == NULL) {
+		printk(KERN_INFO "cannot create root dentry!..\n");
+		retval = -ENOMEM;
+		goto EXIT4;
+	}
+
+	return 0;
+EXIT4:
+	iput(root_inode);
+EXIT3:
+	brelse(sfs_sb->data_bitmap_bh);
+EXIT2:
+	brelse(sfs_sb->inode_bitmap_bh);
+EXIT1:
+	kfree(sfs_sb);
 
 	return retval;
 }
@@ -204,6 +217,9 @@ static struct inode *nkfs_iget(struct super_block *sb, unsigned long ino)
 		/* ... */
 	}
 
+	brelse(bh);
+	unlock_new_inode(inode);
+	
 	return inode;
 }
 

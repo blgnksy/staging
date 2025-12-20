@@ -14,11 +14,13 @@
 #define NKFS_INODE_BITMAP_LOCATION		1
 #define NKFS_DATA_BITMAP_LOCATION		2
 #define NKFS_INODE_TABLE_LOCATION		3
-#define NKFS_ROOT_INO				1
+#define NKFS_ROOT_INO				 	1
 #define NKFS_FILENAME_MAXLEN    		32
 
 /* Filesystem version */
 #define NKFS_VERSION 1
+
+static struct kmem_cache *nkfs_inode_cachep;
 
 struct nkfs_disk_super_block {
 	__le32 magic;
