@@ -18,7 +18,7 @@ menuentry "Custom Linux" {
 EOF
 
 # Generate the ISO
-grub-mkrescue -o customos.iso iso/
+grub2-mkrescue -o customos.iso iso/
 
 # Cleanup
 rm -rf iso/
