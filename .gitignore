@@ -193,3 +193,10 @@ sphinx_*/
 .env/
 .pytest_cache/
 __pycache__/
+
+./busyboxx/busybox-1.37.0/*
+./busyboxx/initrd/*
+./busyboxx/bzImage
+./busyboxx/*.img 
+./busyboxx/*.iso
+./busyboxx/vmlinux 
