@@ -16,6 +16,7 @@
 #define NKFS_INODE_TABLE_LOCATION		3
 #define NKFS_ROOT_INO				 	1
 #define NKFS_FILENAME_MAXLEN    		32
+#define NKFS_MAX_DIR_ENTRIES		(NKFS_BLOCK_SIZE / sizeof(struct nkfs_disk_dir_entry))
 
 /* Filesystem version */
 #define NKFS_VERSION 1
@@ -42,7 +43,7 @@ struct nkfs_super_block {
 	struct buffer_head *data_bitmap_bh;
 	unsigned long *inode_bitmap;
 	unsigned long *data_bitmap;
-	spinlock_t lock;
+	spinlock_t slock;
 };
 
 struct nkfs_inode {
@@ -70,6 +71,7 @@ struct nkfs_disk_dir_entry {
 };
 
 
+
 static struct dentry *nkfs_mount(struct file_system_type *type, int flags,
                                  const char *dev, void *data);
 static int nkfs_fill_super(struct super_block *sb, void *data, int silent);
@@ -85,13 +87,15 @@ static struct nkfs_disk_inode *nkfs_get_disk_inode(struct super_block *sb,
                                                    struct buffer_head **bhp);
 static struct dentry *nkfs_lookup(struct inode *dir, struct dentry *dentry,
                                   unsigned int flags);
+int nkfs_iterate_shared(struct file *file,
+                        struct dir_context *ctx);
 
 static struct file_system_type nkfs_type = {
 	.owner = THIS_MODULE,
 	.name = "nkfs",
 	.mount = nkfs_mount,
 	.kill_sb = nkfs_kill_sb,
-	.fs_flags = FS_REQUIRES_DEV,
+	.fs_flags = FS_REQUIRES_DEV,   
     };
 
 static const struct super_operations nkfs_super_ops = {
@@ -109,5 +113,9 @@ static const struct inode_operations nkfs_dir_inode_ops = {
 static const struct inode_operations nkfs_file_inode_ops = {
 	NULL
 };
+
+static const struct file_operations nkfs_dir_inode_fops = {
+        .iterate_shared = nkfs_iterate_shared
+    };
 
 #endif //STAGING_NKFS_H

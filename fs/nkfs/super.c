@@ -8,7 +8,6 @@ MODULE_AUTHOR("Bilgin Aksoy");
 MODULE_DESCRIPTION("nkfs");
 
 /* MACROS */
-#define NKFS_MAX_DIR_ENTRIES		(NKFS_BLOCK_SIZE / sizeof(struct nkfs_disk_dir_entry))
 #define NKFS_SB(sb)			((struct nkfs_super_block *)((sb->s_fs_info)))
 #define NKFS_DISK_SB(sb)		(NKFS_SB((sb))->sbd)
 #define NKFS_DISK_INODE_SIZE		sizeof(struct nkfs_disk_inode)
@@ -20,6 +19,7 @@ static int __init nkfs_module_init(void)
 {
 	int result;
 
+	printk(KERN_INFO "NKFS: initializing nkfs module...\n");
 	if ((nkfs_inode_cachep = kmem_cache_create(
 		     "nkfs_inode_cache", sizeof(struct nkfs_inode),
 		     0, _SLAB_HWCACHE_ALIGN, NULL)) == NULL) {
@@ -27,12 +27,15 @@ static int __init nkfs_module_init(void)
 		return -ENOMEM;
 	}
 
+	printk(KERN_INFO "NKFS: registering nkfs file system...\n");
+
 	if ((result = register_filesystem(&nkfs_type)) != 0) {
 		printk(KERN_ERR "cannot register file system\n");
 		goto EXIT;
 	}
 
-	printk(KERN_INFO "nkfs module init\n");
+	printk(KERN_INFO "NKFS: nkfs module init\n");
+	return 0;
 EXIT:
 	kmem_cache_destroy(nkfs_inode_cachep);
 
@@ -44,7 +47,7 @@ static void __exit nkfs_module_exit(void)
 	unregister_filesystem(&nkfs_type);
 	kmem_cache_destroy(nkfs_inode_cachep);
 
-	printk(KERN_INFO "nkfs module exit\n");
+	printk(KERN_INFO "NKFS: nkfs module exit\n");
 }
 
 static struct dentry *nkfs_mount(struct file_system_type *type, int flags,
@@ -55,7 +58,7 @@ static struct dentry *nkfs_mount(struct file_system_type *type, int flags,
 
 static int nkfs_fill_super(struct super_block *sb, void *data, int silent)
 {
-	struct nkfs_super_block *sfs_sb;
+	struct nkfs_super_block *nkfs_sb;
 	struct nkfs_disk_super_block *sbd;
 	struct inode *root_inode;
 	int retval;
@@ -64,82 +67,100 @@ static int nkfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb_set_blocksize(sb, NKFS_BLOCK_SIZE);
 	sb->s_maxbytes = NKFS_BLOCK_SIZE;
 	sb->s_op = &nkfs_super_ops;
+	sb->s_flags |= SB_NOATIME;
 
-	if ((sfs_sb = kzalloc(sizeof(struct nkfs_super_block), GFP_KERNEL)) ==
+	if ((nkfs_sb = kzalloc(sizeof(struct nkfs_super_block), GFP_KERNEL)) ==
 	    NULL) {
-		printk(KERN_INFO "cannot allocate nkfs super block!..\n");
+		printk(KERN_INFO "NKFS: cannot allocate nkfs super block!..\n");
 		return -ENOMEM;
 	}
-	sb->s_fs_info = sfs_sb;
+	sb->s_fs_info = nkfs_sb;
+	spin_lock_init(&nkfs_sb->slock);
 
-	if ((sfs_sb->sb_bh = sb_bread(sb, 0)) == NULL) {
-		printk(KERN_INFO "cannot read  nkfs disk super block!..\n");
+	if ((nkfs_sb->sb_bh = sb_bread(sb, 0)) == NULL) {
+		printk(KERN_INFO "NKFS: cannot read  nkfs disk super block!..\n");
+		retval = -EINVAL;
 		goto EXIT1;
 	}
-	retval = -EINVAL;
+	
 
-	sbd = (struct nkfs_disk_super_block *)sfs_sb->sb_bh->b_data;
-	sfs_sb->sbd = sbd;
+	sbd = (struct nkfs_disk_super_block *)nkfs_sb->sb_bh->b_data;
+	nkfs_sb->sbd = sbd;
 
 	if (le32_to_cpu(sbd->magic) != NKFS_MAGIC) {
-		printk(KERN_INFO "invalid magic number for simpls: %08X\n",
+		printk(KERN_INFO "NKFS: invalid magic number for nkfs: %08X\n",
 		       sbd->magic);
-		goto EXIT2;
+		goto EXIT1;
 	}
 	if (le32_to_cpu(sbd->block_size) != NKFS_BLOCK_SIZE) {
-		printk(KERN_INFO "invalid block size for simpls: %08X\n",
+		printk(KERN_INFO "NKFS: invalid block size for nkfs: %08X\n",
 		       sbd->block_size);
-		goto EXIT2;
+		goto EXIT1;
 	}
 	if (le32_to_cpu(sbd->inode_table_block) != 3) {
-		printk(KERN_INFO "invalid inode table for simpls: %08X\n",
+		printk(KERN_INFO "NKFS: invalid inode table for nkfs: %08X\n",
 		       sbd->inode_table_block);
-		goto EXIT2;
+		goto EXIT1;
 	}
 
-	if ((sfs_sb->inode_bitmap_bh = sb_bread(sb, NKFS_INODE_BITMAP_LOCATION))
+	if ((nkfs_sb->inode_bitmap_bh = sb_bread(sb, NKFS_INODE_BITMAP_LOCATION))
 	    == NULL) {
-		printk(KERN_INFO "cannot read nkfs inode bitmap!..\n");
+		printk(KERN_INFO "NKFS: cannot read nkfs inode bitmap!..\n");
+		goto EXIT1;
+	}
+	nkfs_sb->inode_bitmap = (unsigned long *)nkfs_sb->inode_bitmap_bh->b_data;
+
+	if ((nkfs_sb->data_bitmap_bh = sb_bread(sb, NKFS_DATA_BITMAP_LOCATION))
+	    == NULL) {
+		printk(KERN_INFO "NKFS: cannot read nkfs data bitmap!..\n");
 		goto EXIT2;
 	}
-	sfs_sb->inode_bitmap = (unsigned long *)sfs_sb->inode_bitmap_bh->b_data;
-
-	if ((sfs_sb->data_bitmap_bh = sb_bread(sb, NKFS_DATA_BITMAP_LOCATION))
-	    == NULL) {
-		printk(KERN_INFO "cannot read nkfs data bitmap!..\n");
-		goto EXIT3;
-	}
-	sfs_sb->data_bitmap = (unsigned long *)sfs_sb->data_bitmap_bh->b_data;
+	nkfs_sb->data_bitmap = (unsigned long *)nkfs_sb->data_bitmap_bh->b_data;
 
 	root_inode = nkfs_iget(sb, NKFS_ROOT_INO);
 	if (IS_ERR(root_inode)) {
-		printk(KERN_INFO "cannot read root inode!..\n");
+		printk(KERN_INFO "NKFS: cannot read root inode!..\n");
 		retval = PTR_ERR(root_inode);
-		goto EXIT4;
+		goto EXIT3;
 	}
 
-	sb->s_root = d_make_root(root_inode);
-	if (sb->s_root == NULL) {
-		printk(KERN_INFO "cannot create root dentry!..\n");
+	if ((sb->s_root = d_make_root(root_inode)) == NULL) {
+		printk(KERN_INFO "NKFS: cannot create root dentry!..\n");
 		retval = -ENOMEM;
 		goto EXIT4;
 	}
 
 	return 0;
+
 EXIT4:
 	iput(root_inode);
 EXIT3:
-	brelse(sfs_sb->data_bitmap_bh);
+	brelse(nkfs_sb->data_bitmap_bh);
 EXIT2:
-	brelse(sfs_sb->inode_bitmap_bh);
+	brelse(nkfs_sb->inode_bitmap_bh);
 EXIT1:
-	kfree(sfs_sb);
+	kfree(nkfs_sb);
 
 	return retval;
 }
 
 static void nkfs_kill_sb(struct super_block *sb)
 {
+	struct nkfs_super_block *nkfs_sb = NKFS_SB(sb);
+
+	kill_block_super(sb);
+
+	if (nkfs_sb) {
+		if (nkfs_sb->data_bitmap_bh)
+			brelse(nkfs_sb->data_bitmap_bh);
+		if (nkfs_sb->inode_bitmap_bh)
+			brelse(nkfs_sb->inode_bitmap_bh);
+		if (nkfs_sb->sb_bh)
+			brelse(nkfs_sb->sb_bh);
+		kfree(nkfs_sb);
+	}
+
+	printk(KERN_INFO "NKFS: unmount super block...\n");
 }
 
 static struct inode *nkfs_alloc_inode(struct super_block *sb)
@@ -211,6 +232,7 @@ static struct inode *nkfs_iget(struct super_block *sb, unsigned long ino)
 
 	if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &nkfs_dir_inode_ops;
+		inode->i_fop = &nkfs_dir_inode_fops;
 		/* ... */
 	} else {
 		inode->i_op = &nkfs_file_inode_ops;

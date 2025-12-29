@@ -9,6 +9,7 @@ static struct inode *nkfs_alloc_inode(struct super_block *sb)
 
 	if ((inode_nkfs = kmem_cache_alloc(nkfs_inode_cachep, GFP_KERNEL)) == NULL) 
 		return NULL;
+	inode_init_once(&inode_nkfs->vfs_inode);
 
 	return &inode_nkfs->vfs_inode;
 }
