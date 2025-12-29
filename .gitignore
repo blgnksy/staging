@@ -200,3 +200,4 @@ __pycache__/
 ./busyboxx/*.img 
 ./busyboxx/*.iso
 ./busyboxx/vmlinux 
+./busyboxx/*.dat
