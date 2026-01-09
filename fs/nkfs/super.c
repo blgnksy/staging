@@ -8,10 +8,26 @@ MODULE_AUTHOR("Bilgin Aksoy");
 MODULE_DESCRIPTION("nkfs");
 
 /* MACROS */
-#define NKFS_SB(sb)			((struct nkfs_super_block *)((sb->s_fs_info)))
-#define NKFS_DISK_SB(sb)		(NKFS_SB((sb))->sbd)
-#define NKFS_DISK_INODE_SIZE		sizeof(struct nkfs_disk_inode)
-#define NKFS_DISK_INODE_PER_BLOCK	(NKFS_BLOCKSIZE / NKFS_DISK_INODE_SIZE)
+/* MACROS defined in nkfs.h */
+
+struct kmem_cache *nkfs_inode_cachep;
+
+struct file_system_type nkfs_type = {
+	.owner = THIS_MODULE,
+	.name = "nkfs",
+	.mount = nkfs_mount,
+	.kill_sb = nkfs_kill_sb,
+	.fs_flags = FS_REQUIRES_DEV,   
+};
+
+const struct super_operations nkfs_super_ops = {
+	.alloc_inode = nkfs_alloc_inode,
+	.free_inode = nkfs_free_inode,
+	.write_inode = nkfs_write_inode,
+	.evict_inode = nkfs_evict_inode,
+	.statfs = simple_statfs,
+};
+
 
 
 
@@ -50,13 +66,13 @@ static void __exit nkfs_module_exit(void)
 	printk(KERN_INFO "NKFS: nkfs module exit\n");
 }
 
-static struct dentry *nkfs_mount(struct file_system_type *type, int flags,
+struct dentry *nkfs_mount(struct file_system_type *type, int flags,
                                  const char *dev, void *data)
 {
 	return mount_bdev(type, flags, dev, data, nkfs_fill_super);
 }
 
-static int nkfs_fill_super(struct super_block *sb, void *data, int silent)
+int nkfs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct nkfs_super_block *nkfs_sb;
 	struct nkfs_disk_super_block *sbd;
@@ -144,7 +160,7 @@ EXIT1:
 	return retval;
 }
 
-static void nkfs_kill_sb(struct super_block *sb)
+void nkfs_kill_sb(struct super_block *sb)
 {
 	struct nkfs_super_block *nkfs_sb = NKFS_SB(sb);
 
@@ -163,143 +179,6 @@ static void nkfs_kill_sb(struct super_block *sb)
 	printk(KERN_INFO "NKFS: unmount super block...\n");
 }
 
-static struct inode *nkfs_alloc_inode(struct super_block *sb)
-{
-	struct nkfs_inode *inode_nkfs;
-
-	if ((inode_nkfs = kmem_cache_alloc(nkfs_inode_cachep, GFP_KERNEL)) ==
-	    NULL)
-		return NULL;
-
-	return &inode_nkfs->vfs_inode;
-}
-
-static void nkfs_free_inode(struct inode *inode)
-{
-	struct
-	nkfs_inode *inode_nkfs = inode_nkfs = container_of(
-		                         inode, struct nkfs_inode, vfs_inode);
-
-	kmem_cache_free(nkfs_inode_cachep, inode_nkfs);
-}
-
-static int nkfs_write_inode(struct inode *inode, struct writeback_control *wbc)
-{
-	return 0;
-}
-
-static void nkfs_evict_inode(struct inode *inode)
-{
-}
-
-static struct inode *nkfs_iget(struct super_block *sb, unsigned long ino)
-{
-	struct inode *inode;
-	struct nkfs_disk_inode *disk_inode;
-	struct buffer_head *bh;
-	struct nkfs_disk_super_block *nkfs_sbd;
-	struct nkfs_inode *inode_nkfs;
-
-	nkfs_sbd = NKFS_DISK_SB(sb);
-	if (ino >= nkfs_sbd->inode_count)
-		return ERR_PTR(-EINVAL);
-
-	if ((inode = iget_locked(sb, ino)) == NULL)
-		return ERR_PTR(-ENOMEM);
-
-	if (!(inode->i_state & I_NEW))
-		return inode;
-
-	disk_inode = nkfs_get_disk_inode(sb, ino, &bh);
-	if (IS_ERR(disk_inode)) {
-		iget_failed(inode);
-		return (struct inode *)disk_inode;
-	}
-
-	inode->i_mode = le32_to_cpu(disk_inode->mode);
-	i_uid_write(inode, le32_to_cpu(disk_inode->uid));
-	i_gid_write(inode, le32_to_cpu(disk_inode->gid));
-	inode->i_size = le32_to_cpu(disk_inode->size);
-	set_nlink(inode, le32_to_cpu(disk_inode->nlink));
-	inode->i_blocks = le32_to_cpu(disk_inode->blocks);
-	inode->i_size = le32_to_cpu(disk_inode->size);
-	inode_set_atime(inode, le32_to_cpu(disk_inode->atime), 0);
-	inode_set_mtime(inode, le32_to_cpu(disk_inode->mtime), 0);
-	inode_set_ctime(inode, le32_to_cpu(disk_inode->ctime), 0);
-
-	inode_nkfs = container_of(inode, struct nkfs_inode, vfs_inode);
-	inode_nkfs->block_no = disk_inode->block_no;
-
-	if (S_ISDIR(inode->i_mode)) {
-		inode->i_op = &nkfs_dir_inode_ops;
-		inode->i_fop = &nkfs_dir_inode_fops;
-		/* ... */
-	} else {
-		inode->i_op = &nkfs_file_inode_ops;
-		/* ... */
-	}
-
-	brelse(bh);
-	unlock_new_inode(inode);
-	
-	return inode;
-}
-
-static struct nkfs_disk_inode *nkfs_get_disk_inode(struct super_block *sb,
-                                                   unsigned long ino,
-                                                   struct buffer_head **bhpp)
-{
-	int block_no, block_offset;
-	struct buffer_head *bh;
-	struct nkfs_disk_inode *disk_inode;
-
-	block_no = NKFS_INODE_TABLE_LOCATION + ino * NKFS_DISK_INODE_SIZE /
-	           NKFS_BLOCK_SIZE;
-	block_offset = ino * NKFS_DISK_INODE_SIZE % NKFS_BLOCK_SIZE;
-
-	if ((bh = sb_bread(sb, block_no)) == NULL)
-		return ERR_PTR(-EIO);
-
-	disk_inode = (struct nkfs_disk_inode *)(bh->b_data + block_offset);
-	*bhpp = bh;
-
-	return disk_inode;
-}
-
-static struct dentry *nkfs_lookup(struct inode *dir, struct dentry *dentry,
-                                  unsigned int flags)
-{
-	struct super_block *sb = dir->i_sb;
-	struct
-	nkfs_inode *inode_nkfs =
-		container_of(dir, struct nkfs_inode, vfs_inode);
-	struct buffer_head *bh;
-	struct nkfs_disk_dir_entry *de;
-	struct inode *inode = NULL;
-	int i;
-
-	if (dentry->d_name.len > NKFS_FILENAME_MAXLEN)
-		return ERR_PTR(-ENAMETOOLONG);
-
-	if ((bh = sb_bread(sb, inode_nkfs->block_no)) == NULL)
-		return ERR_PTR(-EIO);
-
-	de = (struct nkfs_disk_dir_entry *)bh->b_data;
-	for (i = 0; i < NKFS_MAX_DIR_ENTRIES; ++i) {
-		if (de[i].inode == 0) /* deleted entry */
-			continue;
-		if (strcmp(de[i].name, dentry->d_name.name) == 0) {
-			inode = nkfs_iget(sb, le32_to_cpu(de[i].inode));
-			if (IS_ERR(inode))
-				return (struct dentry *)inode;
-			break;
-		}
-	}
-
-	brelse(bh);
-
-	return d_splice_alias(inode, dentry);
-}
-
+/* Inode functions moved to inode.c */
 module_init(nkfs_module_init);
 module_exit(nkfs_module_exit);

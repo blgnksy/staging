@@ -18,10 +18,18 @@
 #define NKFS_FILENAME_MAXLEN    		32
 #define NKFS_MAX_DIR_ENTRIES		(NKFS_BLOCK_SIZE / sizeof(struct nkfs_disk_dir_entry))
 
+/* Helper macros */
+#define NKFS_SB(sb)			((struct nkfs_super_block *)((sb)->s_fs_info))
+#define NKFS_DISK_SB(sb)		(NKFS_SB((sb))->sbd)
+#define NKFS_DISK_INODE_SIZE		sizeof(struct nkfs_disk_inode)
+#define NKFS_DISK_INODE_PER_BLOCK	(NKFS_BLOCK_SIZE / NKFS_DISK_INODE_SIZE)
+
+
 /* Filesystem version */
 #define NKFS_VERSION 1
 
-static struct kmem_cache *nkfs_inode_cachep;
+/* Cache for inode structure */
+/* Defined in super.c */
 
 struct nkfs_disk_super_block {
 	__le32 magic;
@@ -72,50 +80,29 @@ struct nkfs_disk_dir_entry {
 
 
 
-static struct dentry *nkfs_mount(struct file_system_type *type, int flags,
-                                 const char *dev, void *data);
-static int nkfs_fill_super(struct super_block *sb, void *data, int silent);
-static void nkfs_kill_sb(struct super_block *sb);
+/* Global variables */
+extern struct kmem_cache *nkfs_inode_cachep;
+extern const struct file_operations nkfs_dir_inode_fops;
+extern const struct inode_operations nkfs_dir_inode_ops;
+extern const struct inode_operations nkfs_file_inode_ops;
+extern struct file_system_type nkfs_type;
 
-static struct inode *nkfs_alloc_inode(struct super_block *sb);
-static void nkfs_free_inode(struct inode *inode);
-static int nkfs_write_inode(struct inode *inode, struct writeback_control *wbc);
-static void nkfs_evict_inode(struct inode *inode);
-static struct inode *nkfs_iget(struct super_block *sb, unsigned long ino);
-static struct nkfs_disk_inode *nkfs_get_disk_inode(struct super_block *sb,
-                                                   unsigned long ino,
-                                                   struct buffer_head **bhp);
-static struct dentry *nkfs_lookup(struct inode *dir, struct dentry *dentry,
-                                  unsigned int flags);
-int nkfs_iterate_shared(struct file *file,
-                        struct dir_context *ctx);
+/* Inode operations */
+struct inode *nkfs_alloc_inode(struct super_block *sb);
+void nkfs_free_inode(struct inode *inode);
+int nkfs_write_inode(struct inode *inode, struct writeback_control *wbc);
+void nkfs_evict_inode(struct inode *inode);
+struct inode *nkfs_iget(struct super_block *sb, unsigned long ino);
+struct dentry *nkfs_lookup(struct inode *dir, struct dentry *dentry,
+			   unsigned int flags);
+struct dentry *nkfs_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode);
+struct inode *nkfs_new_inode(struct inode *dir, umode_t mode);
+int nkfs_iterate_shared(struct file *file, struct dir_context *ctx);
 
-static struct file_system_type nkfs_type = {
-	.owner = THIS_MODULE,
-	.name = "nkfs",
-	.mount = nkfs_mount,
-	.kill_sb = nkfs_kill_sb,
-	.fs_flags = FS_REQUIRES_DEV,   
-    };
-
-static const struct super_operations nkfs_super_ops = {
-	.alloc_inode = nkfs_alloc_inode,
-	.free_inode = nkfs_free_inode,
-	.write_inode = nkfs_write_inode,
-	.evict_inode = nkfs_evict_inode,
-	.statfs = simple_statfs,
-};
-
-static const struct inode_operations nkfs_dir_inode_ops = {
-	.lookup = nkfs_lookup,
-};
-
-static const struct inode_operations nkfs_file_inode_ops = {
-	NULL
-};
-
-static const struct file_operations nkfs_dir_inode_fops = {
-        .iterate_shared = nkfs_iterate_shared
-    };
+/* Superblock operations */
+int nkfs_fill_super(struct super_block *sb, void *data, int silent);
+struct dentry *nkfs_mount(struct file_system_type *type, int flags,
+			  const char *dev, void *data);
+void nkfs_kill_sb(struct super_block *sb);
 
 #endif //STAGING_NKFS_H
