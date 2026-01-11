@@ -10,3 +10,13 @@ fill super block
     diskten inode oku
 
  
+
+
+
+dd if=/dev/zero of=my.dat bs=512 count=4096
+
+losetup /dev/loop0 my.dat 
+
+mkdir -p /mnt/my
+mkfs.nkfs /dev/loop0
+mount -t nkfs /dev/loop0 /mnt/my
