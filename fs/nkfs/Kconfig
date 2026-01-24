@@ -1,0 +1,5 @@
+config NKFS
+    bool "Nehir Kartal File System"
+    default y
+    help
+        My file simple filesystem implementation
