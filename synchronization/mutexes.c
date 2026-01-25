@@ -5,10 +5,10 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/uaccess.h>
-#include <linux/semaphore.h>
+#include <linux/mutex.h>
 #include "common.h"
 
-#define CLASS_NAME "semaphores_class"
+#define CLASS_NAME "mutexes_class"
 
 static dev_t dev_number;
 static struct cdev my_cdev;
@@ -17,7 +17,7 @@ static struct device *my_device;
 static const struct file_operations fops;
 
 static int counter;
-static DEFINE_SEMAPHORE(counter_lock, 3); // Initial count is 3
+static DEFINE_MUTEX(counter_lock);
 
 /**
  * The open operation is the driver callback invoked when userspace calls open(2) on the device node (e.g. /dev/mydev).
@@ -40,14 +40,14 @@ static DEFINE_SEMAPHORE(counter_lock, 3); // Initial count is 3
  */
 static int dev_open(struct inode *inode, struct file *file)
 {
-    pr_info("semaphores: device opened\n");
+    pr_info("mutexes: device opened\n");
     return 0;
 }
 
 /* File operation for closing */
 static int dev_release(struct inode *inode, struct file *file)
 {
-    pr_info("semaphores: device closed\n");
+    pr_info("mutexes: device closed\n");
     return 0;
 }
 
@@ -57,11 +57,11 @@ static long dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     int tmp;
     long ret = 0;
 
-    if (_IOC_TYPE(cmd) != SEMAPHORES_IOC_MAGIC)
+    if (_IOC_TYPE(cmd) != MUTEXES_IOC_MAGIC)
         return -ENOTTY;
 
     switch (cmd) {
-    case SEMAPHORES_IOC_SET_COUNTER:
+    case MUTEXES_IOC_SET_COUNTER:
         if (copy_from_user(&tmp, (int __user *)arg, sizeof(tmp)))
             return -EFAULT;
 
@@ -69,32 +69,32 @@ static long dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
          * signal arrived. The system programmer should return -ERESTARTSYS in such cases to inform the
          * calling process that the system call was interrupted by a signal and may be restarted.
          */
-        if (down_interruptible(&counter_lock) != 0)
+        if (mutex_lock_interruptible(&counter_lock) != 0)
             return -ERESTARTSYS;
 
         counter = tmp;
-        up(&counter_lock);
-        pr_info("semaphores: counter set to %d\n", counter);
+        mutex_unlock(&counter_lock);
+        pr_info("mutexes: counter set to %d\n", counter);
         break;
 
-    case SEMAPHORES_IOC_GET_COUNTER:
-        if (down_interruptible(&counter_lock) != 0)
+    case MUTEXES_IOC_GET_COUNTER:
+        if (mutex_lock_interruptible(&counter_lock) != 0)
             return -ERESTARTSYS;
 
         tmp = counter;
-        up(&counter_lock);
+        mutex_unlock(&counter_lock);
         if (copy_to_user((int __user *)arg, &tmp, sizeof(tmp)))
             return -EFAULT;
-        pr_info("semaphores: counter %d returned\n", tmp);
+        pr_info("mutexes: counter %d returned\n", tmp);
         break;
 
-    case SEMAPHORES_IOC_RESET:
-        if (down_interruptible(&counter_lock) != 0)
+    case MUTEXES_IOC_RESET:
+        if (mutex_lock_interruptible(&counter_lock) != 0)
             return -ERESTARTSYS;
             
         counter = 0;
-        up(&counter_lock);
-        pr_info("semaphores: counter reset\n");
+        mutex_unlock(&counter_lock);
+        pr_info("mutexes: counter reset\n");
         break;
 
     default:
@@ -148,12 +148,12 @@ int init_module(void)
 {
     int ret;
 
-    pr_info("semaphores: init\n");
+    pr_info("mutexes: init\n");
 
     /* allocate device number */
     ret = alloc_chrdev_region(&dev_number, 0, 1, SEMAPHORES_DEVICE_NAME);
     if (ret) {
-        pr_err("semaphores: failed to alloc chrdev region\n");
+        pr_err("mutexes: failed to alloc chrdev region\n");
         return ret;
     }
 
@@ -162,14 +162,14 @@ int init_module(void)
 
     ret = cdev_add(&my_cdev, dev_number, 1);
     if (ret) {
-        pr_err("semaphores: cdev_add failed\n");
+        pr_err("mutexes: cdev_add failed\n");
         unregister_chrdev_region(dev_number, 1);
         return ret;
     }
 
     my_class = class_create(CLASS_NAME);
     if (IS_ERR(my_class)) {
-        pr_err("semaphores: class_create failed\n");
+        pr_err("mutexes: class_create failed\n");
         cdev_del(&my_cdev);
         unregister_chrdev_region(dev_number, 1);
         return PTR_ERR(my_class);
@@ -177,16 +177,17 @@ int init_module(void)
 
     my_device = device_create(my_class, NULL, dev_number, NULL, SEMAPHORES_DEVICE_NAME);
     if (IS_ERR(my_device)) {
-        pr_err("semaphores: device_create failed\n");
+        pr_err("mutexes: device_create failed\n");
         class_destroy(my_class);
         cdev_del(&my_cdev);
         unregister_chrdev_region(dev_number, 1);
         return PTR_ERR(my_device);
     }
 
+    mutex_init(&counter_lock);
     counter = 0;
 
-    pr_info("semaphores: device /dev/%s ready (major %d minor %d)\n",
+    pr_info("mutexes: device /dev/%s ready (major %d minor %d)\n",
         SEMAPHORES_DEVICE_NAME, MAJOR(dev_number), MINOR(dev_number));
     return 0;
 }
@@ -197,7 +198,7 @@ void cleanup_module(void)
     class_destroy(my_class);
     cdev_del(&my_cdev);
     unregister_chrdev_region(dev_number, 1);
-    pr_info("semaphores: unloaded\n");
+    pr_info("mutexes: unloaded\n");
 }
 
 MODULE_LICENSE("GPL");

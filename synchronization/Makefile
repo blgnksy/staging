@@ -1,7 +1,8 @@
-# List your module object(s)
+# List module object(s)
 obj-m += semaphores.o
+obj-m += mutexes.o
 
-# If your module has multiple .c files:
+# If module has multiple .c files:
 # semaphores-objs := semaphores.o helper.o
 
 # Path to custom kernel source
