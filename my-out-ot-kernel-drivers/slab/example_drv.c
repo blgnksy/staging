@@ -7,20 +7,29 @@
 #include <linux/list.h>
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
+#include <stdio.h>
+#include <sys/types.h>
 
+// Cached node
 struct cache_node {
 	struct list_head list;
 	struct my_data data;
 };
 
+// Slab cache
 static struct kmem_cache *my_cache;
+
+// The registry for the cached objects. Caches object of type my_data
 static LIST_HEAD(node_list);
 static int node_count;
 static DEFINE_MUTEX(node_lock);
+
+// Character device driver global variables
 static dev_t g_dev;
 static struct cdev g_cdev;
 static struct class *example_class;
 
+// Supported file operations
 static int test_driver_open(struct inode *inodep, struct file *filp)
 {
 	return 0;
@@ -59,13 +68,16 @@ static long ioctl_create(unsigned long arg)
 	struct my_data user;
 	struct cache_node *node;
 
+    // Fill user with the arguments from user space
 	if (copy_from_user(&user, (void __user *)arg, sizeof(user)))
 		return -EFAULT;
 
+    // Allocate memory for object
 	node = kmem_cache_alloc(my_cache, GFP_KERNEL);
 	if (!node)
 		return -ENOMEM;
 
+    // The list node points itself
 	INIT_LIST_HEAD(&node->list);
 	node->data = user;
 
@@ -116,6 +128,7 @@ static long ioctl_destroy(unsigned long arg)
 	return 0;
 }
 
+// Dispatches the request to the corresponding io operation
 static long test_driver_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	long result;
@@ -159,17 +172,20 @@ static int __init example_init(void)
 		return -ENOMEM;
 	}
 
+    // Allocate character device
 	if ((result = alloc_chrdev_region(&g_dev, 0, 1, DRIVER_NAME)) < 0) {
 		pr_err("%s: unable to allocate char device region\n", DRIVER_NAME);
 		goto error_cache;
 	}
 
+    // Initialize and regoster the device
 	cdev_init(&g_cdev, &g_fops);
 	if ((result = cdev_add(&g_cdev, g_dev, 1)) < 0) {
 		pr_err("%s: cdev_add failed\n", DRIVER_NAME);
 		goto error_chrdev;
 	}
 
+    // Device driver class
 	example_class = class_create(DRIVER_NAME);
 	if (IS_ERR(example_class)) {
 		result = PTR_ERR(example_class);
@@ -177,6 +193,7 @@ static int __init example_init(void)
 		goto error_cdev;
 	}
 
+    // Device driver creation
 	if (IS_ERR(device_create(example_class, NULL, g_dev, NULL, DRIVER_NAME))) {
 		result = -EINVAL;
 		pr_err("%s: device_create failed\n", DRIVER_NAME);

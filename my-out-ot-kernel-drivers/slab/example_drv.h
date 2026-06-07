@@ -3,7 +3,7 @@
 
 #include <linux/ioctl.h>
 
-#define DRIVER_NAME "example_drv"
+#define DRIVER_NAME "slab_drv"
 
 struct my_data {
 	int id;

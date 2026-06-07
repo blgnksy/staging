@@ -13,19 +13,19 @@ This directory contains a minimal Linux kernel character device module demonstra
 ## Build
 
 ```bash
-make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
+make all
 ```
 
 ## Load the module
 
 ```bash
-sudo insmod example_drv.ko
+make load
 ```
 
 ## Example shell command to test
 
 ```bash
-sudo python3 test.py
+make test
 ```
 
 ## Graph
@@ -43,7 +43,7 @@ sudo python3 test.py
                |  (my_cache)         |               |
                +---------------------+               |
                         |                            |
-            kmem_cache_alloc |                            |
+       kmem_cache_alloc |                            |
                         v                            |
                 +-------------------+                |
                 |   cache_node      |                |
@@ -62,16 +62,15 @@ sudo python3 test.py
         +---------------+---------------+
         |               |               |
   create ioctl    get ioctl     destroy ioctl
-   IOCTL_CREATE    IOCTL_GET     IOCTL_DESTROY
-   alloc node      lookup node    free all nodes
+  IOCTL_CREATE    IOCTL_GET     IOCTL_DESTROY
+   alloc node     lookup node   free all nodes
 ```
 
 ## Unload
 
 ```bash
-sudo rmmod example_drv
+make unload
 ```
 
 ## Notes
-
-If `/dev/example_drv` does not appear automatically, check `dmesg` and make sure your system has udev enabled.
+If `/dev/example_drv` does not appear automatically, check `sudo dmesg -w` and make sure your system has udev enabled.

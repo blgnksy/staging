@@ -39,7 +39,7 @@ IOCTL_DESTROY = _IO(TEST_DRIVER_MAGIC, 2)
 
 
 def main():
-    path = '/dev/example_drv'
+    path = '/dev/slab_drv'
     if not os.path.exists(path):
         raise FileNotFoundError(f'{path} does not exist; is the module loaded?')
 
