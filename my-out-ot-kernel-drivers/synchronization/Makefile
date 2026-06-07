@@ -15,13 +15,18 @@ all:
 	# Build external module
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
+semaphore_test: semaphores_test.c
+	gcc -o semaphores_test semaphores_test.c
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 install:
-	sudo insmod semaphores.ko
+	insmod semaphores.ko
+	insmod mutexes.ko
 
 uninstall:
-	sudo rmmod semaphores.ko
+	rmmod semaphores.ko
+	rmmod mutexes.ko
 
 .PHONY: all clean
